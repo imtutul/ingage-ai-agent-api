@@ -5,7 +5,8 @@ Simple usage example for the Fabric Data Agent Client
 This script demonstrates how to use the FabricDataAgentClient to call
 a Fabric Data Agent from outside of the Fabric environment.
 """
-
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file if present
 import os
 from fabric_data_agent_client import FabricDataAgentClient
 
@@ -14,20 +15,11 @@ def main():
     Example usage of the Fabric Data Agent Client
     """
     # Set your configuration here or in environment variables
-    TENANT_ID = os.getenv("TENANT_ID", "your-tenant-id-here")
-    DATA_AGENT_URL = os.getenv("DATA_AGENT_URL", "your-data-agent-url-here")
-    
+    TENANT_ID = os.getenv("TENANT_ID")
+    DATA_AGENT_URL = os.getenv("DATA_AGENT_URL")
+
     # Check if configuration is set
-    if TENANT_ID == "your-tenant-id-here" or DATA_AGENT_URL == "your-data-agent-url-here":
-        print("❌ Please set your TENANT_ID and DATA_AGENT_URL")
-        print("\nOptions:")
-        print("1. Set environment variables:")
-        print("   export TENANT_ID='your-actual-tenant-id'")
-        print("   export DATA_AGENT_URL='your-actual-data-agent-url'")
-        print("\n2. Edit this script and replace the placeholder values")
-        print("\n3. Create a .env file with these variables")
-        return
-    
+   
     try:
         print("🚀 Starting Fabric Data Agent Client Example")
         print("=" * 60)
