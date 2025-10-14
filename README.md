@@ -1,51 +1,276 @@
-# Fabric Data Agent External Client
+# Fabric Data Agent API Server
 
-A standalone Python client for calling Microsoft Fabric Data Agents from outside of the Fabric environment using interactive browser authentication.
+A comprehensive FastAPI server for Microsoft Fabric Data Agents with Azure AI Search integration, supporting multiple authentication methods and deployment options.
 
-## Overview
+## 🚀 Overview
 
-This client enables you to interact with your Microsoft Fabric Data Agents from external applications, scripts, or environments. It handles Azure authentication, token management, and provides a simple interface for asking questions to your data agents.
+This project provides a production-ready REST API server that enables external applications to interact with Microsoft Fabric Data Agents and Azure AI Search services. It supports both local development and cloud deployment with comprehensive authentication options.
 
-## Features
+## ✨ Features
 
-- 🔐 **Interactive Browser Authentication** - Secure Azure AD authentication with automatic browser flow
-- 🔄 **Automatic Token Refresh** - Handles token expiration and refresh automatically
-- 🧹 **Resource Cleanup** - Properly manages OpenAI threads and resources
-- ⚡ **Simple API** - Easy-to-use interface for querying your data agents
-- 📊 **Detailed Responses** - Get both simple answers and detailed run information
-- ⏰ **Timeout Handling** - Configurable timeouts for long-running queries
-- 🛡️ **Error Handling** - Comprehensive error handling and user-friendly messages
+### Core Functionality
+- 🔗 **Fabric Data Agent Integration** - Query your Fabric data agents via REST API
+- 🔍 **Azure AI Search Integration** - Full-text and semantic search capabilities  
+- 🌐 **FastAPI Server** - High-performance async API with automatic documentation
+- 🔄 **Health Monitoring** - Built-in health checks and status endpoints
 
-## Requirements
+### Authentication Options
+- �️ **Interactive Browser** - For local development and testing
+- 🔐 **Service Principal** - For production Azure App Service deployment
+- 🆔 **Managed Identity** - For Azure-native resource authentication
+- 🎫 **Token Refresh** - Automatic token management and renewal
+
+### Deployment Options
+- 🌐 **Azure App Service** - Full web application hosting
+- ⚡ **Azure Functions** - Serverless compute with individual functions
+- 🏠 **Local Development** - Uvicorn server for testing
+
+### Search Capabilities
+- 📄 **Full-text Search** - Traditional keyword-based search
+- � **Semantic Search** - AI-powered contextual search
+- 💡 **Search Suggestions** - Auto-complete and query suggestions
+- 🏷️ **Faceted Search** - Category-based filtering
+
+## 📋 Requirements
 
 - Python 3.7+
 - Azure tenant with Fabric Data Agent access
-- Published Fabric Data Agent URL
+- Azure AD App Registration (for service principal auth)
+- Optional: Azure AI Search service
 
-## Installation
+## 🔧 Quick Setup
 
-1. Clone or download this repository:
+### 1. Automated Azure AD Setup (Recommended)
+
+Run the PowerShell setup script to automatically create your Azure AD App Registration:
+
+```powershell
+# Run the automated setup script
+.\setup-azure-ad.ps1
+
+# Follow the prompts to create Azure AD App Registration
+# This will generate a .env.generated file with your credentials
+```
+
+### 2. Manual Setup
+
+If you prefer manual setup, follow the detailed guide:
+
+```bash
+# See detailed instructions
+cat SERVICE_PRINCIPAL_SETUP.md
+```
+
+### 3. Environment Configuration
+
+```bash
+# Copy the generated environment file
+cp .env.generated .env
+
+# Update with your Fabric workspace details
+# Edit DATA_AGENT_URL with your actual workspace and skill IDs
+```
+
+## ⚙️ Installation
+
+1. Clone this repository:
 
 ```bash
 git clone <repository-url>
-cd fabric_data_agent_client
+cd ingage-ai-agent-api
 ```
 
-2. Install required dependencies:
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration
+## 🔑 Authentication Setup
 
-You can configure the client in three ways:
+### For Azure App Service Deployment (Production)
 
-### Option 1: Environment Variables
+You need to set up service principal authentication to avoid the 503 errors in Azure App Service:
+
+## 🔑 Authentication Setup
+
+### For Azure App Service Deployment (Production)
+
+You need to set up service principal authentication to avoid the 503 errors in Azure App Service:
+
+**Option 1: Use the Automated Setup Script**
+```powershell
+# This creates Azure AD App Registration and generates .env file
+.\setup-azure-ad.ps1
+```
+
+**Option 2: Manual Setup**
+```bash
+# Follow the detailed step-by-step guide
+cat SERVICE_PRINCIPAL_SETUP.md
+```
+
+**Option 3: Quick Manual Configuration**
+```env
+# Create .env file with these values
+TENANT_ID=your-azure-tenant-id
+CLIENT_ID=your-azure-app-registration-client-id  
+CLIENT_SECRET=your-azure-app-registration-secret
+DATA_AGENT_URL=https://api.fabric.microsoft.com/v1/workspaces/YOUR_WORKSPACE_ID/aiskills/YOUR_SKILL_ID/aiassistant/openai
+```
+
+### For Local Development
+
+```env
+# For local testing, you can use interactive authentication
+TENANT_ID=your-azure-tenant-id
+DATA_AGENT_URL=your-fabric-data-agent-url
+# CLIENT_ID and CLIENT_SECRET are optional for local development
+```
+
+### For Azure AI Search (Optional)
+
+```env
+AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
+AZURE_SEARCH_KEY=your-search-admin-key
+AZURE_SEARCH_INDEX=your-search-index-name
+```
+
+## 🧪 Testing Your Setup
+
+Test your authentication configuration before deploying:
 
 ```bash
-export TENANT_ID=<your-azure-tenant-id>
-export DATA_AGENT_URL=<your-fabric-data-agent-url>
+# Run the comprehensive test suite
+python test_service_principal.py
+```
+
+This will verify:
+- ✅ Environment variables are set correctly
+- ✅ Azure credentials work
+- ✅ Token acquisition succeeds  
+- ✅ Fabric client initializes
+- ✅ Fabric queries work
+
+## 🚀 Running the Server
+
+### Local Development
+
+```bash
+# Start the development server
+python start_server.py
+
+# Or use uvicorn directly
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Production (Azure App Service)
+
+```bash
+# The server will automatically use Gunicorn in production
+# Configure these environment variables in Azure App Service:
+TENANT_ID=your-tenant-id
+CLIENT_ID=your-client-id
+CLIENT_SECRET=your-client-secret
+DATA_AGENT_URL=your-fabric-url
+```
+
+## 📡 API Endpoints
+
+### Health Check
+```bash
+GET /health
+# Returns server status and client initialization status
+```
+
+### Fabric Data Agent Queries
+```bash
+# Simple query
+POST /query
+{
+  "query": "What data is available in our sales database?"
+}
+
+# Detailed query with run information
+POST /query/detailed  
+{
+  "query": "Show me the top 10 customers by revenue",
+  "timeout": 60
+}
+```
+
+### Azure AI Search
+```bash
+# Simple search
+POST /search
+{
+  "query": "customer data",
+  "top": 10
+}
+
+# Semantic search
+POST /search/semantic
+{
+  "query": "find information about customer satisfaction",
+  "top": 5
+}
+
+# Search suggestions
+GET /search/suggest?query=cust&top=5
+
+# Search autocomplete
+GET /search/autocomplete?query=customer&top=8
+```
+
+## 🌐 API Documentation
+
+When the server is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+## 🐳 Deployment Options
+
+### Option 1: Azure App Service (Recommended)
+
+```bash
+# Deploy using Azure CLI
+az webapp up --name your-app-name --resource-group your-rg --runtime PYTHON:3.11
+
+# Configure environment variables
+az webapp config appsettings set --resource-group your-rg --name your-app-name --settings \
+  TENANT_ID="your-tenant-id" \
+  CLIENT_ID="your-client-id" \
+  CLIENT_SECRET="your-client-secret" \
+  DATA_AGENT_URL="your-fabric-url"
+```
+
+### Option 2: Azure Functions (Serverless)
+
+```bash
+# Deploy the Functions version
+cd azure_functions
+func azure functionapp publish your-function-app-name
+```
+
+## 📁 Project Structure
+
+```
+ingage-ai-agent-api/
+├── main.py                          # FastAPI application
+├── fabric_data_agent_client.py      # Enhanced Fabric client with auth options
+├── azure_search_client.py           # Azure AI Search integration
+├── start_server.py                  # Development server launcher
+├── test_service_principal.py        # Authentication testing script
+├── setup-azure-ad.ps1              # Automated Azure AD setup
+├── SERVICE_PRINCIPAL_SETUP.md       # Detailed setup guide
+├── requirements.txt                 # Python dependencies
+├── .env                            # Environment configuration
+├── azure_functions/                # Azure Functions version
+│   ├── health/                     # Health check function
+│   ├── fabric_query/              # Fabric query function  
+│   ├── search/                    # Search function
+│   └── shared_clients.py          # Shared client management
+└── docs/                          # Additional documentation
 ```
 
 ### Option 2: .env File

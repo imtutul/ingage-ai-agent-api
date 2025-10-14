@@ -86,9 +86,15 @@ async def lifespan(app: FastAPI):
     #     raise RuntimeError("DATA_AGENT_URL contains placeholder value")
     
     try:
+        # Get optional service principal credentials
+        client_id = os.getenv("CLIENT_ID")
+        client_secret = os.getenv("CLIENT_SECRET")
+        
         fabric_client = FabricDataAgentClient(
+            data_agent_url=data_agent_url,
             tenant_id=tenant_id,
-            data_agent_url=data_agent_url
+            client_id=client_id,
+            client_secret=client_secret
         )
         print("✅ Fabric Data Agent Client initialized successfully")
     except Exception as e:

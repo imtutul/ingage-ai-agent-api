@@ -22,7 +22,7 @@ import json
 import os
 import warnings
 from typing import Optional
-from azure.identity import InteractiveBrowserCredential
+from azure.identity import InteractiveBrowserCredential, ClientSecretCredential, DefaultAzureCredential
 from openai import OpenAI
 
 # Suppress OpenAI Assistants API deprecation warnings
@@ -46,51 +46,87 @@ class FabricDataAgentClient:
     Client for calling Microsoft Fabric Data Agents from external applications.
     
     This client handles:
-    - Interactive browser authentication with Azure AD
+    - Interactive browser authentication with Azure AD (for local development)
+    - Service principal authentication (for production deployment)
+    - Managed identity authentication (for Azure resources)
     - Automatic token refresh
     - Bearer token management for API calls
     - Proper cleanup of resources
     """
     
-    def __init__(self, tenant_id: str, data_agent_url: str):
+    def __init__(self, data_agent_url: str, tenant_id: str = None, 
+                 client_id: str = None, client_secret: str = None):
         """
         Initialize the Fabric Data Agent client.
         
         Args:
-            tenant_id (str): Your Azure tenant ID
             data_agent_url (str): The published URL of your Fabric Data Agent
+            tenant_id (str, optional): Your Azure tenant ID
+            client_id (str, optional): Azure AD App Registration client ID (for service principal)
+            client_secret (str, optional): Azure AD App Registration client secret (for service principal)
+            
+        Authentication Options:
+            1. Service Principal: Provide tenant_id, client_id, and client_secret
+            2. Interactive Browser: Provide only tenant_id (for local development)
+            3. Managed Identity: Provide no credentials (for Azure resources)
         """
-        self.tenant_id = tenant_id
         self.data_agent_url = data_agent_url
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.credential = None
         self.token = None
         
         # Validate inputs
-        if not tenant_id:
-            raise ValueError("tenant_id is required")
         if not data_agent_url:
             raise ValueError("data_agent_url is required")
         
         print(f"Initializing Fabric Data Agent Client...")
-        print(f"Tenant ID: {tenant_id}")
         print(f"Data Agent URL: {data_agent_url}")
+        print(f"Tenant ID: {tenant_id}")
+        print(f"Authentication method: {self._get_auth_method()}")
         
         self._authenticate()
     
+    def _get_auth_method(self) -> str:
+        """Determine which authentication method will be used."""
+        if self.client_id and self.client_secret and self.tenant_id:
+            return "Service Principal"
+        elif self.tenant_id:
+            return "Interactive Browser"
+        else:
+            return "Managed Identity / Default Credential"
+    
     def _authenticate(self):
         """
-        Perform interactive browser authentication and get initial token.
+        Perform authentication using the appropriate method based on provided credentials.
         """
         try:
             print("\n🔐 Starting authentication...")
-            print("A browser window will open for you to sign in to your Microsoft account.")
             
-            # Create credential for interactive authentication
-            self.credential = InteractiveBrowserCredential(
-                tenant_id=self.tenant_id,
-                # Optional: specify redirect_uri if needed
-                # redirect_uri="http://localhost:8400"
-            )
+            # Service Principal Authentication
+            if self.client_id and self.client_secret and self.tenant_id:
+                print("Using service principal authentication...")
+                self.credential = ClientSecretCredential(
+                    tenant_id=self.tenant_id,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret
+                )
+            
+            # Interactive Browser Authentication  
+            elif self.tenant_id:
+                print("Using interactive browser authentication...")
+                print("A browser window will open for you to sign in to your Microsoft account.")
+                self.credential = InteractiveBrowserCredential(
+                    tenant_id=self.tenant_id,
+                    # Optional: specify redirect_uri if needed
+                    # redirect_uri="http://localhost:8400"
+                )
+            
+            # Managed Identity / Default Credential
+            else:
+                print("Using default Azure credential (managed identity, environment, etc.)...")
+                self.credential = DefaultAzureCredential()
             
             # Get initial token
             self._refresh_token()
