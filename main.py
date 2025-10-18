@@ -90,13 +90,17 @@ async def lifespan(app: FastAPI):
         client_id = os.getenv("CLIENT_ID")
         client_secret = os.getenv("CLIENT_SECRET")
         
+        # Initialize client WITHOUT automatic authentication
+        # Authentication will happen on-demand when a user makes their first request
         fabric_client = FabricDataAgentClient(
             data_agent_url=data_agent_url,
             tenant_id=tenant_id,
             client_id=client_id,
-            client_secret=client_secret
+            client_secret=client_secret,
+            auto_authenticate=False  # Don't authenticate during startup
         )
-        print("✅ Fabric Data Agent Client initialized successfully")
+        print("✅ Fabric Data Agent Client initialized successfully (authentication deferred)")
+        print("🔐 Authentication will occur when first user makes a request")
     except Exception as e:
         print(f"❌ Failed to initialize Fabric client: {e}")
         raise RuntimeError(f"Failed to initialize Fabric client: {e}")
