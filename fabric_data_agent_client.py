@@ -56,7 +56,7 @@ class FabricDataAgentClient:
     
     def __init__(self, data_agent_url: str, tenant_id: str = None, 
                  client_id: str = None, client_secret: str = None, 
-                 auto_authenticate: bool = True):
+                 auto_authenticate: bool = True, access_token: str = None):
         """
         Initialize the Fabric Data Agent client.
         
@@ -66,11 +66,13 @@ class FabricDataAgentClient:
             client_id (str, optional): Azure AD App Registration client ID (for service principal)
             client_secret (str, optional): Azure AD App Registration client secret (for service principal)
             auto_authenticate (bool, optional): Whether to authenticate immediately (default: True)
+            access_token (str, optional): Pre-obtained access token from client-side authentication
             
         Authentication Options:
-            1. Service Principal: Provide tenant_id, client_id, and client_secret
-            2. Interactive Browser: Provide only tenant_id (for local development)
-            3. Managed Identity: Provide no credentials (for Azure resources)
+            1. Client-Side Token: Provide access_token (frontend handles authentication)
+            2. Service Principal: Provide tenant_id, client_id, and client_secret
+            3. Interactive Browser: Provide only tenant_id (for local development)
+            4. Managed Identity: Provide no credentials (for Azure resources)
         """
         self.data_agent_url = data_agent_url
         self.tenant_id = tenant_id
@@ -79,6 +81,7 @@ class FabricDataAgentClient:
         self.credential = None
         self.token = None
         self._authenticated = False
+        self._use_client_token = False
         
         # Validate inputs
         if not data_agent_url:
@@ -87,12 +90,20 @@ class FabricDataAgentClient:
         print(f"Initializing Fabric Data Agent Client...")
         print(f"Data Agent URL: {data_agent_url}")
         print(f"Tenant ID: {tenant_id}")
-        print(f"Authentication method: {self._get_auth_method()}")
         
-        if auto_authenticate:
-            self._authenticate()
+        # If access token is provided, use it directly (client-side authentication)
+        if access_token:
+            print(f"Authentication method: Client-Side Token")
+            self.token = access_token
+            self._authenticated = True
+            self._use_client_token = True
+            print("✅ Using client-provided access token")
         else:
-            print("⏸️ Authentication deferred - will authenticate on first request")
+            print(f"Authentication method: {self._get_auth_method()}")
+            if auto_authenticate:
+                self._authenticate()
+            else:
+                print("⏸️ Authentication deferred - will authenticate on first request")
     
     def _get_auth_method(self) -> str:
         """Determine which authentication method will be used."""
@@ -106,10 +117,11 @@ class FabricDataAgentClient:
     def _setup_credential(self):
         """Set up the credential object without getting a token."""
         if self.credential is not None:
+            print("✅ Authentication credential already set up")
             return  # Already set up
-            
-        print("\n� Setting up authentication credential...")
-        
+
+        print("\n🔧 Setting up authentication credential...")
+
         # Service Principal Authentication
         if self.client_id and self.client_secret and self.tenant_id:
             print("Using service principal authentication...")
@@ -122,11 +134,11 @@ class FabricDataAgentClient:
         # Interactive Browser Authentication  
         elif self.tenant_id:
             print("Using interactive browser authentication...")
-            redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:4200")
-            print(f"Using redirect URI: {redirect_uri}")
+            # redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:4200")
+            # print(f"Using redirect URI: {redirect_uri}")
             self.credential = InteractiveBrowserCredential(
                 tenant_id=self.tenant_id,
-                redirect_uri=redirect_uri
+                # redirect_uri=+-+
             )
         
         # Managed Identity / Default Credential
@@ -170,10 +182,101 @@ class FabricDataAgentClient:
         if not self._authenticated:
             self._authenticate()
     
+    def set_access_token(self, access_token: str):
+        """
+        Set a new access token from client-side authentication.
+        Use this when the frontend handles authentication and provides the token.
+        
+        Args:
+            access_token (str): The access token obtained from client-side authentication
+        """
+        print("🔑 Setting client-provided access token...")
+        self.token = access_token
+        self._authenticated = True
+        self._use_client_token = True
+        print("✅ Access token set successfully")
+    
+    def get_current_user(self) -> dict:
+        """
+        Get current authenticated user details using Microsoft Graph API.
+        
+        Returns:
+            dict: User information including email, display name, etc.
+        """
+        self.ensure_authenticated()
+        
+        try:
+            import requests
+            
+            # Get a token for Microsoft Graph API
+            graph_token = self.credential.get_token("https://graph.microsoft.com/.default")
+            
+            # Call Microsoft Graph API to get user info
+            headers = {
+                "Authorization": f"Bearer {graph_token.token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(
+                "https://graph.microsoft.com/v1.0/me",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                return {
+                    "email": user_data.get("mail") or user_data.get("userPrincipalName"),
+                    "display_name": user_data.get("displayName"),
+                    "given_name": user_data.get("givenName"),
+                    "surname": user_data.get("surname"),
+                    "job_title": user_data.get("jobTitle"),
+                    "office_location": user_data.get("officeLocation"),
+                    "id": user_data.get("id")
+                }
+            else:
+                raise Exception(f"Failed to get user info: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"❌ Failed to get user info: {e}")
+            raise
+    
+    def is_authenticated(self) -> bool:
+        """
+        Check if the client is currently authenticated.
+        
+        Returns:
+            bool: True if authenticated, False otherwise
+        """
+        if not self._authenticated:
+            return False
+            
+        # Check if token is still valid
+        if self.token and self.token.expires_on > time.time():
+            return True
+            
+        return False
+    
+    def logout(self):
+        """
+        Logout the current user by clearing credentials and tokens.
+        This forces re-authentication on next login, including browser prompt.
+        """
+        print("🚪 Logging out...")
+        self.token = None
+        self._authenticated = False
+        self.credential = None  # Clear credential to force new browser authentication
+        print("✅ Logged out successfully - credential cleared, browser auth will be required on next login")
+    
     def _refresh_token(self):
         """
         Refresh the authentication token.
+        For client-side tokens, this will skip refresh (frontend handles it).
         """
+        # Skip token refresh if using client-provided token
+        if self._use_client_token:
+            print("ℹ️ Using client-provided token, skipping refresh")
+            return
+            
         try:
             print("🔄 Refreshing authentication token...")
             if self.credential is None:
@@ -196,19 +299,24 @@ class FabricDataAgentClient:
         # Ensure we're authenticated before making API calls
         self.ensure_authenticated()
         
-        # Check if token needs refresh (refresh 5 minutes before expiry)
-        if self.token and self.token.expires_on <= (time.time() + 300):
-            self._refresh_token()
+        # For client-side tokens (string), skip refresh check
+        if not self._use_client_token:
+            # Check if token needs refresh (refresh 5 minutes before expiry)
+            if self.token and self.token.expires_on <= (time.time() + 300):
+                self._refresh_token()
         
         if not self.token:
             raise ValueError("No valid authentication token available")
+        
+        # Get token string - either from AccessToken object or directly from string
+        token_string = self.token.token if hasattr(self.token, 'token') else self.token
         
         return OpenAI(
             api_key="",  # Not used - we use Bearer token
             base_url=self.data_agent_url,
             default_query={"api-version": "2024-05-01-preview"},
             default_headers={
-                "Authorization": f"Bearer {self.token.token}",
+                "Authorization": f"Bearer {token_string}",
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "ActivityId": str(uuid.uuid4())

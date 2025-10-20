@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Debugger - Fabric API Scopes Issue</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+        }
+        .section {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .error {
+            background: #fee;
+            border-left-color: #f44;
+            color: #c33;
+        }
+        .success {
+            background: #efe;
+            border-left-color: #4f4;
+            color: #3a3;
+        }
+        .warning {
+            background: #ffc;
+            border-left-color: #fc3;
+            color: #963;
+        }
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px 10px 0;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        .token-info {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+        }
+        .token-info strong {
+            color: #667eea;
+            display: inline-block;
+            min-width: 150px;
+        }
+        .fix-section {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .copy-btn {
+            background: #4caf50;
+            padding: 5px 15px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .copy-btn:hover {
+            background: #45a049;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .result-output {
+            margin-top: 20px;
+            display: none;
+        }
+        .show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Token Debugger - Fix 403 Scopes Error</h1>
+        
+        <div class="section warning">
+            <h3>⚠️ Your Current Error:</h3>
+            <pre>Error code: 403
+"The token does not have any of the required scopes."</pre>
+            <p><strong>This means:</strong> The token you're sending to Fabric API has NO scopes or WRONG scopes.</p>
+        </div>
+
+        <h2>Step 1: Get Your Token</h2>
+        <div class="section">
+            <p>In your frontend app, after login, copy the Fabric token you're sending to the backend.</p>
+            <p><strong>How to get it:</strong></p>
+            <ol>
+                <li>Open browser DevTools (F12)</li>
+                <li>Go to Console tab</li>
+                <li>After you login, check the network request to <code>/auth/client-login</code></li>
+                <li>Copy the <code>access_token</code> or <code>fabric_token</code> value</li>
+                <li>Paste it below</li>
+            </ol>
+            
+            <textarea id="tokenInput" placeholder="Paste your access token here (the long JWT string starting with 'eyJ...')"></textarea>
+            <br>
+            <button onclick="analyzeToken()">🔍 Analyze Token</button>
+            <button onclick="clearResults()">🗑️ Clear</button>
+        </div>
+
+        <div id="results" class="result-output">
+            <h2>Token Analysis Results</h2>
+            <div id="resultsContent"></div>
+        </div>
+
+        <div class="fix-section">
+            <h2>🛠️ The Fix (Based on Analysis)</h2>
+            <div id="fixInstructions">
+                <p>Analyze your token first to see specific instructions...</p>
+            </div>
+        </div>
+
+        <h2>📚 Understanding the Problem</h2>
+        <div class="section">
+            <h3>Why This Happens:</h3>
+            <p>Microsoft Fabric uses <strong>Power BI Service</strong> infrastructure for authentication, NOT the Fabric API endpoint directly.</p>
+            
+            <div class="token-info">
+                <p><strong>❌ Wrong Approach (Your Current Setup):</strong></p>
+                <code>scopes: ['https://api.fabric.microsoft.com/.default']</code>
+                <p style="margin-top: 10px;">This requests a token for Fabric API, but doesn't include any specific scopes!</p>
+            </div>
+
+            <div class="token-info">
+                <p><strong>✅ Correct Approach:</strong></p>
+                <code>scopes: ['https://analysis.windows.net/powerbi/api/.default']</code>
+                <p style="margin-top: 10px;">This requests a token for Power BI Service, which includes proper scopes for Fabric!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function analyzeToken() {
+            const token = document.getElementById('tokenInput').value.trim();
+            const resultsDiv = document.getElementById('results');
+            const resultsContent = document.getElementById('resultsContent');
+            const fixInstructions = document.getElementById('fixInstructions');
+
+            if (!token) {
+                alert('Please paste a token first!');
+                return;
+            }
+
+            try {
+                // Split token into parts
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    throw new Error('Invalid JWT format. Token should have 3 parts separated by dots.');
+                }
+
+                // Decode header and payload
+                const header = JSON.parse(atob(parts[0]));
+                const payload = JSON.parse(atob(parts[1]));
+
+                // Build results HTML
+                let html = '';
+
+                // Check audience
+                const audience = payload.aud;
+                if (audience === 'https://api.fabric.microsoft.com' || audience === 'https://api.fabric.microsoft.com/') {
+                    html += `<div class="section error">
+                        <h3>❌ Problem Found: Wrong Audience</h3>
+                        <div class="token-info">
+                            <strong>Current Audience:</strong> ${audience}
+                        </div>
+                        <p><strong>Issue:</strong> You're requesting a token for Fabric API endpoint, which doesn't include scopes!</p>
+                    </div>`;
+                } else if (audience === 'https://analysis.windows.net/powerbi/api' || audience === 'https://analysis.windows.net/powerbi/api/') {
+                    html += `<div class="section success">
+                        <h3>✅ Correct Audience</h3>
+                        <div class="token-info">
+                            <strong>Current Audience:</strong> ${audience}
+                        </div>
+                        <p>Good! You're using Power BI Service endpoint.</p>
+                    </div>`;
+                } else {
+                    html += `<div class="section warning">
+                        <h3>⚠️ Unexpected Audience</h3>
+                        <div class="token-info">
+                            <strong>Current Audience:</strong> ${audience}
+                        </div>
+                    </div>`;
+                }
+
+                // Check scopes
+                const scopes = payload.scp || payload.scope;
+                if (!scopes) {
+                    html += `<div class="section error">
+                        <h3>❌ Problem Found: NO SCOPES!</h3>
+                        <p><strong>This is why you're getting the 403 error!</strong></p>
+                        <p>The token has no 'scp' or 'scope' claim, meaning it has zero permissions.</p>
+                    </div>`;
+                } else {
+                    html += `<div class="section success">
+                        <h3>✅ Token Has Scopes</h3>
+                        <div class="token-info">
+                            <strong>Scopes:</strong> ${scopes}
+                        </div>
+                    </div>`;
+                }
+
+                // Show all token info
+                html += `<div class="section">
+                    <h3>📋 Complete Token Details</h3>
+                    <div class="token-info">
+                        <strong>Algorithm:</strong> ${header.alg || 'N/A'}<br>
+                        <strong>Type:</strong> ${header.typ || 'N/A'}<br>
+                        <strong>Audience (aud):</strong> ${payload.aud || 'N/A'}<br>
+                        <strong>Issuer (iss):</strong> ${payload.iss || 'N/A'}<br>
+                        <strong>App ID:</strong> ${payload.appid || payload.azp || 'N/A'}<br>
+                        <strong>User:</strong> ${payload.upn || payload.unique_name || payload.preferred_username || 'N/A'}<br>
+                        <strong>Scopes (scp):</strong> ${payload.scp || 'NONE'}<br>
+                        <strong>Roles:</strong> ${payload.roles ? payload.roles.join(', ') : 'NONE'}<br>
+                        <strong>Issued At:</strong> ${new Date(payload.iat * 1000).toLocaleString()}<br>
+                        <strong>Expires:</strong> ${new Date(payload.exp * 1000).toLocaleString()}<br>
+                        <strong>Token Version:</strong> ${payload.ver || 'N/A'}
+                    </div>
+                </div>`;
+
+                html += `<div class="section">
+                    <h3>🔬 Full Payload (Raw JSON)</h3>
+                    <pre>${JSON.stringify(payload, null, 2)}</pre>
+                </div>`;
+
+                resultsContent.innerHTML = html;
+                resultsDiv.classList.add('show');
+
+                // Generate fix instructions based on findings
+                generateFixInstructions(audience, scopes, payload);
+
+            } catch (error) {
+                resultsContent.innerHTML = `<div class="section error">
+                    <h3>❌ Error Analyzing Token</h3>
+                    <p>${error.message}</p>
+                    <p>Make sure you pasted a complete JWT token.</p>
+                </div>`;
+                resultsDiv.classList.add('show');
+            }
+        }
+
+        function generateFixInstructions(audience, scopes, payload) {
+            const fixDiv = document.getElementById('fixInstructions');
+            let html = '';
+
+            if (!scopes || (audience && audience.includes('api.fabric.microsoft.com'))) {
+                html = `
+                    <h3>🎯 Required Actions:</h3>
+                    
+                    <div class="section error">
+                        <h4>1. Change Frontend Token Request</h4>
+                        <p>Find this code in your frontend (Angular/React):</p>
+                        <pre>// Current (WRONG):
+const fabricResponse = await msalInstance.acquireTokenSilent({
+  scopes: ['https://api.fabric.microsoft.com/.default'],
+  account: account
+});</pre>
+                        <button class="copy-btn" onclick="copyToClipboard('frontend-fix')">📋 Copy Fix</button>
+                        <pre id="frontend-fix">// Fixed (CORRECT):
+const fabricResponse = await msalInstance.acquireTokenSilent({
+  scopes: ['https://analysis.windows.net/powerbi/api/.default'],
+  account: account
+});</pre>
+                    </div>
+
+                    <div class="section error">
+                        <h4>2. Add Power BI API Permissions in Azure AD</h4>
+                        <ol>
+                            <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+                            <li><strong>Azure Active Directory</strong> → <strong>App registrations</strong></li>
+                            <li>Find your app (Client ID: <code>${payload.appid || 'YOUR_APP_ID'}</code>)</li>
+                            <li>Click <strong>API permissions</strong></li>
+                            <li>Click <strong>+ Add a permission</strong></li>
+                            <li>Select <strong>APIs my organization uses</strong></li>
+                            <li>Search for: <strong>Power BI Service</strong></li>
+                            <li>Select <strong>Delegated permissions</strong></li>
+                            <li>Check these permissions:
+                                <ul>
+                                    <li>✅ Dataset.Read.All</li>
+                                    <li>✅ Dataset.ReadWrite.All</li>
+                                    <li>✅ Workspace.Read.All</li>
+                                    <li>✅ Workspace.ReadWrite.All</li>
+                                </ul>
+                            </li>
+                            <li>Click <strong>Add permissions</strong></li>
+                            <li>Click <strong>Grant admin consent for [Your Org]</strong></li>
+                            <li>Click <strong>Yes</strong></li>
+                            <li>Verify green checkmarks ✅ appear next to all permissions</li>
+                        </ol>
+                    </div>
+
+                    <div class="section warning">
+                        <h4>3. Test the Fix</h4>
+                        <ol>
+                            <li>Clear browser cache or use Incognito mode</li>
+                            <li>Login to your app again</li>
+                            <li>You'll see a NEW consent popup (accept it)</li>
+                            <li>Try your query again</li>
+                            <li>Should work! ✅</li>
+                        </ol>
+                    </div>
+
+                    <div class="section success">
+                        <h4>4. Verify the Fix</h4>
+                        <p>After making changes, get a new token and analyze it here again.</p>
+                        <p>You should see:</p>
+                        <ul>
+                            <li>✅ Audience: <code>https://analysis.windows.net/powerbi/api</code></li>
+                            <li>✅ Scopes: <code>Dataset.Read.All Workspace.Read.All ...</code></li>
+                        </ul>
+                    </div>
+                `;
+            } else {
+                html = `
+                    <div class="section success">
+                        <h3>✅ Your Token Looks Good!</h3>
+                        <p>The token has correct audience and scopes. The 403 error might be due to:</p>
+                        <ul>
+                            <li>User doesn't have access to the Fabric workspace</li>
+                            <li>User doesn't have access to the specific AI Skill</li>
+                            <li>Token has expired</li>
+                        </ul>
+                        <h4>Next Steps:</h4>
+                        <ol>
+                            <li>Verify user <code>${payload.upn || 'user'}</code> has access to Fabric workspace</li>
+                            <li>Check workspace permissions in Fabric Portal</li>
+                            <li>Verify AI Skill ID is correct</li>
+                        </ol>
+                    </div>
+                `;
+            }
+
+            fixDiv.innerHTML = html;
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard! ✅');
+            });
+        }
+
+        function clearResults() {
+            document.getElementById('tokenInput').value = '';
+            document.getElementById('results').classList.remove('show');
+            document.getElementById('fixInstructions').innerHTML = '<p>Analyze your token first to see specific instructions...</p>';
+        }
+    </script>
+</body>
+</html>

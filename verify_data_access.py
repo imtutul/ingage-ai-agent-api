@@ -52,7 +52,7 @@ def test_fabric_query(query, description):
             return "http_error"
             
     except Exception as e:
-        print(f"   💥 Error: {e}")
+        print(f"   💥 Error(verify_data_access): {e}")
         return "connection_error"
 
 def main():
