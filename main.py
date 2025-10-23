@@ -42,10 +42,16 @@ SESSION_COOKIE_NAME = "fabric_session_id"
 SESSION_EXPIRY_HOURS = 24
 
 # Pydantic models for request/response
+class ConversationMessage(BaseModel):
+    """Single message in conversation history"""
+    role: str = Field(..., description="Role of the message sender (user or assistant)")
+    content: str = Field(..., description="Content of the message")
+
 class QueryRequest(BaseModel):
     """Request model for data agent queries"""
     query: str = Field(..., description="The question or query to ask the data agent", min_length=1)
     include_details: bool = Field(default=False, description="Whether to include detailed run information")
+    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, description="Previous conversation history for context")
 
 class QueryResponse(BaseModel):
     """Response model for simple queries"""
@@ -620,6 +626,15 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
         user_email = session["user"].get("email", "unknown")
         print(f"📝 Processing query from {user_email}: {request.query}")
         
+        # Convert conversation history to dictionary format if provided
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+            print(f"📚 Including {len(conversation_history)} messages from conversation history")
+        
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
             # Create a temporary client with the user's token
@@ -629,10 +644,10 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
                 auto_authenticate=False,
                 access_token=session["access_token"]
             )
-            response = user_client.ask(request.query)
+            response = user_client.ask(request.query, conversation_history=conversation_history)
         else:
             # Use server-side authentication
-            response = fabric_client.ask(request.query)
+            response = fabric_client.ask(request.query, conversation_history=conversation_history)
         
         return QueryResponse(
             success=True,
@@ -670,6 +685,15 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
         user_email = session["user"].get("email", "unknown")
         print(f"📝 Processing detailed query from {user_email}: {request.query}")
         
+        # Convert conversation history to dictionary format if provided
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+            print(f"📚 Including {len(conversation_history)} messages from conversation history")
+        
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
             # Create a temporary client with the user's token
@@ -679,10 +703,10 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
                 auto_authenticate=False,
                 access_token=session["access_token"]
             )
-            run_details = user_client.get_run_details(request.query)
+            run_details = user_client.get_run_details(request.query, conversation_history=conversation_history)
         else:
             # Use server-side authentication
-            run_details = fabric_client.get_run_details(request.query)
+            run_details = fabric_client.get_run_details(request.query, conversation_history=conversation_history)
         
         if "error" in run_details:
             return DetailedQueryResponse(

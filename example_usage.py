@@ -137,6 +137,27 @@ def main():
     except KeyboardInterrupt:
         print("\n⏹️ Operation cancelled by user")
     except Exception as e:
+        # Example 4: Conversation History Feature
+        print("\n📋 Example 4: Using Conversation History for Context")
+        print("    (Simulates a multi-turn conversation)")
+        
+        # First query - ask about members
+        first_response = client.ask("Show me top 3 members with their basic information")
+        print(f"\n💬 First Response: {first_response[:200]}...")
+        
+        # Build conversation history
+        conversation_history = [
+            {"role": "user", "content": "Show me top 3 members with their basic information"},
+            {"role": "assistant", "content": first_response}
+        ]
+        
+        # Follow-up query with context
+        followup_response = client.ask("Tell me more about the first member", conversation_history=conversation_history)
+        print(f"\n💬 Follow-up Response (with context): {followup_response[:200]}...")
+        
+        print("\n✅ Conversation history example completed!")
+        
+    except Exception as e:
         print(f"\n❌ Error: {e}")
         print("\nTroubleshooting tips:")
         print("- Ensure you have the required packages installed: pip install -r requirements.txt")

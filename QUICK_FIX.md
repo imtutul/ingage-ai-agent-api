@@ -1,196 +1,120 @@
-# 🚀 Quick Fix for 403 Error
+# Quick Fix: New User "Connection Error"
 
-## The Problem
-Your token only has `User.Read` scope (Microsoft Graph).
-You need `https://api.fabric.microsoft.com/.default` scope.
+## TL;DR - Most Likely Cause
+**New users haven't authenticated yet.** The frontend shows a generic "trouble connecting" message when the backend returns authentication errors.
 
----
+## Immediate Fixes Applied ✅
 
-## 5-Minute Fix
+### 1. Better Error Messages
+Changed from HTTP exceptions to user-friendly responses:
 
-### Step 1: Update Your Login Code
-
-**Find this in your frontend:**
-```typescript
-// Current (WRONG)
-msalInstance.loginPopup({
-  scopes: ['User.Read']
-});
+**Before:**
+```python
+raise HTTPException(status_code=401, detail="Not authenticated")
+# Frontend shows: "I'm sorry, I'm having trouble connecting to the server"
 ```
 
-**Replace with:**
+**After:**
+```python
+return QueryResponse(
+    success=False,
+    response="Please sign in to continue. Click the 'Sign In' button to authenticate.",
+    error="authentication_required"
+)
+# Frontend shows: "Please sign in to continue. Click the 'Sign In' button to authenticate."
+```
+
+### 2. Specific Error Handling
+Added intelligent error detection:
+- 403 → "You don't have permission. Contact your administrator."
+- 401 → "Your session expired. Please sign in again."
+- Timeout → "Request took too long. Try a simpler query."
+- Connection → "Unable to connect. Check your connection."
+
+## What You Need to Check
+
+### Frontend Checklist:
 ```typescript
-// Step 1: Login with Graph
-const graphResponse = await msalInstance.loginPopup({
-  scopes: ['User.Read']
-});
-
-// Step 2: Get Fabric token
-const fabricResponse = await msalInstance.acquireTokenSilent({
-  scopes: ['https://api.fabric.microsoft.com/.default'],
-  account: graphResponse.account
-});
-
-// Step 3: Send Fabric token to backend
-await fetch('https://ingage-ai-agent-api-c6f9htcfd3baa2b4.canadacentral-01.azurewebsites.net/auth/client-login', {
+// 1. Include credentials in requests
+fetch('/query', {
+  credentials: 'include',  // ← Must have this!
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include',
-  body: JSON.stringify({
-    access_token: fabricResponse.accessToken  // ← Fabric token, not Graph token!
-  })
-});
-```
+  body: JSON.stringify({ query })
+})
 
-### Step 2: Update All API Calls
-
-Make sure EVERY fetch to your backend includes:
-```typescript
-credentials: 'include'  // ← This sends the session cookie!
-```
-
-Example:
-```typescript
-fetch('https://YOUR_BACKEND_URL/query', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  credentials: 'include',  // ← IMPORTANT!
-  body: JSON.stringify({ query: 'total plan count' })
-});
-```
-
----
-
-## What This Does
-
-1. **First token** (Graph) - Validates you're a real Microsoft user
-2. **Second token** (Fabric) - Gives permission to access Fabric API
-3. **Backend gets Fabric token** - Uses it to query Data Agent on your behalf
-4. **Session cookie** - Remembers you're logged in
-
----
-
-## Testing
-
-After updating, try logging in again. Check browser console for:
-```
-🔐 Step 1: Authenticating with Microsoft...
-✅ Graph authentication successful
-🔐 Step 2: Getting Fabric API token...
-✅ Fabric token acquired
-```
-
-Then check your backend console (where server is running) for:
-```
-🔍 Token audience: https://api.fabric.microsoft.com  ✅
-🔍 Token scopes: ...  ✅
-```
-
-If audience is `https://graph.microsoft.com` ❌ - You're sending the wrong token!
-
----
-
-## Still Not Working?
-
-### Error: "consent_required"
-**Fix:** Use popup instead of silent:
-```typescript
-const fabricResponse = await msalInstance.acquireTokenPopup({
-  scopes: ['https://api.fabric.microsoft.com/.default']
-});
-```
-
-### Error: "Invalid token" or "Session expired"
-**Fix:** Make sure you're sending the **Fabric token**, not the Graph token!
-
-### Error: Still 403
-**Cause:** Check backend logs - if token audience is correct, then it's a permission issue in Fabric.
-**Fix:** Make sure user `ahaque@insightintechnology.com` has access to the AI Skill.
-
----
-
-## Complete Working Example
-
-```typescript
-// auth.service.ts (or similar)
-
-export class AuthService {
-  private msalInstance = new PublicClientApplication({
-    auth: {
-      clientId: 'YOUR_CLIENT_ID',
-      authority: 'https://login.microsoftonline.com/4d4eca3f-b031-47f1-8932-59112bf47e6b'
-    }
-  });
-
-  async login() {
-    // Get Graph token
-    const graphResponse = await this.msalInstance.loginPopup({
-      scopes: ['User.Read']
-    });
-
-    // Get Fabric token (try silent first, then popup)
-    let fabricToken;
-    try {
-      const fabricResponse = await this.msalInstance.acquireTokenSilent({
-        scopes: ['https://api.fabric.microsoft.com/.default'],
-        account: graphResponse.account
-      });
-      fabricToken = fabricResponse.accessToken;
-    } catch (error) {
-      // If silent fails, use popup
-      const fabricResponse = await this.msalInstance.acquireTokenPopup({
-        scopes: ['https://api.fabric.microsoft.com/.default']
-      });
-      fabricToken = fabricResponse.accessToken;
-    }
-
-    // Send to backend
-    const response = await fetch(
-      'https://ingage-ai-agent-api-c6f9htcfd3baa2b4.canadacentral-01.azurewebsites.net/auth/client-login',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ access_token: fabricToken })
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Backend authentication failed');
-    }
-
-    console.log('✅ Login successful!');
-  }
-
-  async query(question: string) {
-    const response = await fetch(
-      'https://ingage-ai-agent-api-c6f9htcfd3baa2b4.canadacentral-01.azurewebsites.net/query',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ query: question })
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error('Query failed');
-    }
-
-    return await response.json();
-  }
+// 2. Handle auth errors
+if (!response.success && response.error === 'authentication_required') {
+  // Show sign-in button
+  redirectToLogin();
 }
+
+// 3. Display the backend's user-friendly message
+displayMessage(response.response);  // Now has clear guidance
 ```
 
----
+### Backend Checklist:
+```bash
+# 1. Check service is running
+curl http://localhost:8000/health
+
+# 2. Check environment variables
+echo $DATA_AGENT_URL
+echo $TENANT_ID
+
+# 3. Check logs
+tail -f server.log
+# Look for: "⚠️ No session cookie found"
+```
+
+## Most Common Issues
+
+| Issue | Fix |
+|-------|-----|
+| **No sign-in flow** | Add "Sign In" button that calls `/auth/client-login` |
+| **Cookie not sent** | Add `credentials: 'include'` to fetch/axios |
+| **CORS error** | Add frontend URL to `allow_origins` in `main.py` |
+| **User lacks permissions** | Add user to Fabric workspace as Viewer/Contributor |
+| **Session expired** | Implement auto re-authentication on 401 errors |
+
+## Quick Test
+
+```bash
+# 1. Start backend
+python start_server.py
+
+# 2. Test without authentication (should get friendly error)
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test"}'
+
+# Expected response:
+# {
+#   "success": false,
+#   "response": "Please sign in to continue. Click the 'Sign In' button to authenticate.",
+#   "error": "authentication_required"
+# }
+```
 
 ## Next Steps
 
-1. ✅ Update frontend login code (above)
-2. ✅ Test login - should see no errors
-3. ✅ Test query - should get real data instead of 403
-4. ✅ Check backend console logs to verify token is correct
+1. **Update Frontend:**
+   - Display the `response` field from API (now has user-friendly messages)
+   - Stop showing generic "trouble connecting" error
+   - Show "Sign In" button when `error === "authentication_required"`
 
-**Time estimate:** 5-10 minutes
+2. **Test Authentication Flow:**
+   - User clicks "Sign In"
+   - MSAL gets tokens
+   - Call `/auth/client-login` with tokens
+   - Verify session cookie is set
+   - Try query again (should work)
 
-Need detailed instructions? See `FRONTEND_AUTH_FIX.md`
+3. **Monitor Logs:**
+   - Watch for specific error patterns
+   - Identify common permission issues
+   - Add users to Fabric workspace as needed
+
+## See Also
+- `TROUBLESHOOTING_NEW_USERS.md` - Comprehensive guide
+- `DEBUG_TOKEN_SCRIPT.html` - Token debugging tool
+- `diagnose_permissions.py` - Permission testing script

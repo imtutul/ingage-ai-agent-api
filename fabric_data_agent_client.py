@@ -323,13 +323,14 @@ class FabricDataAgentClient:
             }
         )
     
-    def ask(self, question: str, timeout: int = 120) -> str:
+    def ask(self, question: str, timeout: int = 120, conversation_history: list = None) -> str:
         """
         Ask a question to the Fabric Data Agent.
         
         Args:
             question (str): The question to ask
             timeout (int): Maximum time to wait for response in seconds
+            conversation_history (list): Previous conversation history for context
             
         Returns:
             str: The response from the data agent
@@ -338,6 +339,8 @@ class FabricDataAgentClient:
             raise ValueError("Question cannot be empty")
         
         print(f"\n❓ Asking: {question}")
+        if conversation_history:
+            print(f"📚 With conversation history: {len(conversation_history)} messages")
         
         try:
             client = self._get_openai_client()
@@ -345,9 +348,21 @@ class FabricDataAgentClient:
             # Create assistant without specifying model or instructions
             assistant = client.beta.assistants.create(model="not used")
             
-            # Create thread and send message
+            # Create thread
             thread = client.beta.threads.create()
-            client.beta.threads.messages.create(
+            
+            # Add conversation history to thread if provided
+            if conversation_history:
+                for msg in conversation_history:
+                    client.beta.threads.messages.create(
+                        thread_id=thread.id,
+                        role=msg.get("role", "user"),
+                        content=msg.get("content", "")
+                    )
+                print(f"📚 Added {len(conversation_history)} previous messages to thread")
+            
+            # Send current message (this is the one we want to get a response to)
+            current_message = client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
                 content=question
@@ -376,14 +391,14 @@ class FabricDataAgentClient:
             
             print(f"✅ Final status: {run.status}")
             
-            # Get the response messages
+            # Get the response messages (in descending order to get most recent first)
             messages = client.beta.threads.messages.list(
                 thread_id=thread.id,
-                order="asc"
+                order="desc"
             )
             
-            # Extract assistant responses
-            responses = []
+            # Extract only the most recent assistant response (the new one)
+            latest_response = None
             for msg in messages:
                 if msg.role == "assistant":
                     try:
@@ -392,15 +407,18 @@ class FabricDataAgentClient:
                         if hasattr(content, 'text'):
                             text_content = getattr(content, 'text', None)
                             if text_content is not None and hasattr(text_content, 'value'):
-                                responses.append(text_content.value)
+                                latest_response = text_content.value
                             elif text_content is not None:
-                                responses.append(str(text_content))
+                                latest_response = str(text_content)
                             else:
-                                responses.append(str(content))
+                                latest_response = str(content)
                         else:
-                            responses.append(str(content))
+                            latest_response = str(content)
+                        # Break after finding the first (most recent) assistant message
+                        break
                     except (IndexError, AttributeError):
-                        responses.append(str(msg.content))
+                        latest_response = str(msg.content)
+                        break
             
             # Clean up resources
             try:
@@ -409,8 +427,8 @@ class FabricDataAgentClient:
                 print(f"⚠️ Cleanup warning: {cleanup_error}")
             
             # Return the response
-            if responses:
-                return "\n".join(responses)
+            if latest_response:
+                return latest_response
             else:
                 return "No response received from the data agent."
         
@@ -418,17 +436,20 @@ class FabricDataAgentClient:
             print(f"❌ Error calling data agent: {e}")
             return f"Error: {e}"
     
-    def get_run_details(self, question: str) -> dict:
+    def get_run_details(self, question: str, conversation_history: list = None) -> dict:
         """
         Ask a question and return detailed run information including steps.
         
         Args:
             question (str): The question to ask
+            conversation_history (list): Previous conversation history for context
             
         Returns:
             dict: Detailed response including run steps, metadata, and SQL queries if lakehouse data source
         """
         print(f"\n🔍 Getting detailed run info for: {question}")
+        if conversation_history:
+            print(f"📚 With conversation history: {len(conversation_history)} messages")
         
         try:
             client = self._get_openai_client()
@@ -437,6 +458,17 @@ class FabricDataAgentClient:
             assistant = client.beta.assistants.create(model="not used")
             thread = client.beta.threads.create()
             
+            # Add conversation history to thread if provided
+            if conversation_history:
+                for msg in conversation_history:
+                    client.beta.threads.messages.create(
+                        thread_id=thread.id,
+                        role=msg.get("role", "user"),
+                        content=msg.get("content", "")
+                    )
+                print(f"📚 Added {len(conversation_history)} previous messages to thread")
+            
+            # Send current message
             client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
@@ -476,11 +508,22 @@ class FabricDataAgentClient:
                     sql_analysis["queries"] = regex_queries
                     sql_analysis["data_retrieval_query"] = regex_queries[0] if regex_queries else None
             
-            # Also extract data from the final assistant message
-            messages_data = messages.model_dump()
-            assistant_messages = [msg for msg in messages_data.get('data', []) if msg.get('role') == 'assistant']
-            if assistant_messages:
-                latest_message = assistant_messages[-1]
+            # Also extract data from the most recent assistant message (not from conversation history)
+            # Get messages in descending order to find the latest assistant response
+            latest_messages = client.beta.threads.messages.list(
+                thread_id=thread.id,
+                order="desc"
+            )
+            latest_messages_data = latest_messages.model_dump()
+            
+            # Find the first (most recent) assistant message
+            latest_message = None
+            for msg in latest_messages_data.get('data', []):
+                if msg.get('role') == 'assistant':
+                    latest_message = msg
+                    break
+            
+            if latest_message:
                 content = latest_message.get('content', [])
                 if content and len(content) > 0:
                     # Extract text content

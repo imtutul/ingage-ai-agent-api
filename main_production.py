@@ -119,10 +119,16 @@ fabric_client: Optional[FabricDataAgentClient] = None
 # Pydantic Models
 # ============================================================================
 
+class ConversationMessage(BaseModel):
+    """Single message in conversation history"""
+    role: str = Field(..., description="Role of the message sender (user or assistant)")
+    content: str = Field(..., description="Content of the message")
+
 class QueryRequest(BaseModel):
     """Request model for data agent queries"""
     query: str = Field(..., description="The question or query to ask the data agent", min_length=1, max_length=1000)
     include_details: bool = Field(default=False, description="Whether to include detailed run information")
+    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, description="Previous conversation history for context")
 
 class QueryResponse(BaseModel):
     """Response model for simple queries"""
