@@ -320,10 +320,6 @@ async def lifespan(app: FastAPI):
     
     logger.info("🛑 Shutting down Fabric Data Agent Client...")
 
-# ============================================================================
-# FastAPI Application
-# ============================================================================
-
 app = FastAPI(
     title="Fabric Data Agent API",
     description="Production-ready REST API for querying Microsoft Fabric Data Agents",
