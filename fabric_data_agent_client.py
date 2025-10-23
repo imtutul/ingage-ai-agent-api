@@ -325,7 +325,7 @@ class FabricDataAgentClient:
     
     def ask(self, question: str, timeout: int = 120, conversation_history: list = None) -> str:
         """
-        Ask a question to the Fabric Data Agent.
+        Ask a question to the Fabric Data Agent with retry logic for intermittent failures.
         
         Args:
             question (str): The question to ask
@@ -341,6 +341,36 @@ class FabricDataAgentClient:
         print(f"\n❓ Asking: {question}")
         if conversation_history:
             print(f"📚 With conversation history: {len(conversation_history)} messages")
+        
+        # Retry logic for intermittent failures
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                return self._ask_with_retry(question, timeout, conversation_history)
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Don't retry on authentication/permission errors
+                if any(term in error_msg for term in ['401', 'unauthorized', '403', 'forbidden', 'authentication']):
+                    raise e
+                
+                # Don't retry on the last attempt
+                if attempt == max_retries:
+                    raise e
+                
+                # Retry on potentially transient errors
+                if any(term in error_msg for term in ['500', '502', '503', '504', 'timeout', 'connection', 'network']):
+                    wait_time = (attempt + 1) * 2  # 2, 4 seconds
+                    print(f"⚠️ Attempt {attempt + 1} failed: {e}")
+                    print(f"🔄 Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Not a retryable error
+                    raise e
+    
+    def _ask_with_retry(self, question: str, timeout: int, conversation_history: list = None) -> str:
+        """Internal method to perform the actual API call"""
         
         try:
             client = self._get_openai_client()
@@ -433,8 +463,32 @@ class FabricDataAgentClient:
                 return "No response received from the data agent."
         
         except Exception as e:
-            print(f"❌ Error calling data agent: {e}")
-            return f"Error: {e}"
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            print(f"❌ Error calling data agent:")
+            print(f"   Type: {error_type}")
+            print(f"   Message: {error_msg}")
+            
+            # Handle specific error types with user-friendly messages
+            if "401" in error_msg or "Unauthorized" in error_msg:
+                return "Authentication failed. Please sign in again or check your permissions."
+            elif "403" in error_msg or "Forbidden" in error_msg:
+                return "Access denied. You don't have permission to access this resource. Contact your administrator."
+            elif "429" in error_msg or "rate limit" in error_msg.lower():
+                return "Too many requests. Please wait a moment and try again."
+            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                return "Request timed out. The query is taking too long. Try a simpler question."
+            elif "connection" in error_msg.lower() or "network" in error_msg.lower():
+                return "Network connection error. Please check your internet connection and try again."
+            elif "token" in error_msg.lower() and ("expired" in error_msg.lower() or "invalid" in error_msg.lower()):
+                return "Authentication token expired. Please sign in again."
+            else:
+                # Log the full error for debugging but return a user-friendly message
+                import traceback
+                print(f"🔍 Full error traceback:")
+                traceback.print_exc()
+                return f"I'm sorry, I encountered a technical issue. Please try again later. If the problem persists, contact support."
     
     def get_run_details(self, question: str, conversation_history: list = None) -> dict:
         """

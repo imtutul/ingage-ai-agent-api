@@ -656,12 +656,36 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
         )
     
     except Exception as e:
-        print(f"❌ Query failed: {e}")
+        error_type = type(e).__name__
+        error_msg = str(e)
+        
+        print(f"❌ Query failed:")
+        print(f"   Type: {error_type}")
+        print(f"   Message: {error_msg}")
+        print(f"   User: {session['user'].get('email', 'unknown') if session else 'no session'}")
+        print(f"   Query: {request.query}")
+        
+        # Log full traceback for debugging
+        import traceback
+        print(f"🔍 Full error traceback:")
+        traceback.print_exc()
+        
+        # Return user-friendly error based on the error type
+        if "fabric_data_agent_client" in error_msg.lower():
+            # Error came from our client - return the message as-is (it's already user-friendly)
+            error_response = error_msg
+        elif "HTTPException" in error_type:
+            error_response = "There was an issue processing your request. Please try again."
+        elif "timeout" in error_msg.lower():
+            error_response = "Your request timed out. Please try a simpler question or try again later."
+        else:
+            error_response = "I'm sorry, I encountered an unexpected error. Please try again later."
+        
         return QueryResponse(
             success=False,
-            response="",
+            response=error_response,
             query=request.query,
-            error=str(e)
+            error=f"{error_type}: {error_msg}"
         )
 
 @app.post("/query/detailed", response_model=DetailedQueryResponse)
