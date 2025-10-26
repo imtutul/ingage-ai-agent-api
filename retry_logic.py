@@ -66,10 +66,10 @@ def is_retryable_error(error: Exception) -> bool:
     
     # Retry on these types of errors
     retryable_terms = [
-        '500', 'internal server error',
-        '502', 'bad gateway', 
-        '503', 'service unavailable',
-        '504', 'gateway timeout',
+        '500', '500: internal server error',
+        '502', '502: bad gateway', 
+        '503', '503: service unavailable',
+        '504', '504: gateway timeout',
         'timeout', 'timed out',
         'connection', 'network',
         'rate limit', '429'

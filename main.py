@@ -629,11 +629,39 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
         # Convert conversation history to dictionary format if provided
         conversation_history = None
         if request.conversation_history:
-            conversation_history = [
+            raw_history = [
                 {"role": msg.role, "content": msg.content}
                 for msg in request.conversation_history
             ]
-            print(f"📚 Including {len(conversation_history)} messages from conversation history")
+            
+            # Limit conversation history to prevent 500 errors from oversized payloads
+            max_history_pairs = 6  # Last 6 exchanges (12 messages total)
+            if len(raw_history) > max_history_pairs * 2:
+                # Keep the most recent exchanges
+                conversation_history = raw_history[-(max_history_pairs * 2):]
+                print(f"📚 Conversation history trimmed from {len(raw_history)} to {len(conversation_history)} messages")
+            else:
+                conversation_history = raw_history
+                
+            # Also check total content length to prevent token limit issues
+            total_content_length = sum(len(msg["content"]) for msg in conversation_history)
+            max_content_length = 8000  # Conservative limit
+            
+            if total_content_length > max_content_length:
+                # Further trim by removing older messages
+                while conversation_history and total_content_length > max_content_length:
+                    # Remove the oldest pair (user + assistant)
+                    if len(conversation_history) >= 2:
+                        removed_user = conversation_history.pop(0)
+                        removed_assistant = conversation_history.pop(0) if conversation_history else None
+                        total_content_length -= len(removed_user["content"])
+                        if removed_assistant:
+                            total_content_length -= len(removed_assistant["content"])
+                    else:
+                        break
+                print(f"📚 Conversation history further trimmed due to content length ({total_content_length:,} chars)")
+            
+            print(f"📚 Including {len(conversation_history)} messages from conversation history ({total_content_length:,} chars)")
         
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
@@ -662,7 +690,15 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
         print(f"❌ Query failed:")
         print(f"   Type: {error_type}")
         print(f"   Message: {error_msg}")
-        print(f"   User: {session['user'].get('email', 'unknown') if session else 'no session'}")
+        
+        # Safely get user info for logging
+        user_email = "unknown"
+        if session and "user" in session:
+            user_email = session["user"].get("email", "unknown")
+        elif not session:
+            user_email = "no session"
+        
+        print(f"   User: {user_email}")
         print(f"   Query: {request.query}")
         
         # Log full traceback for debugging
@@ -712,11 +748,27 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
         # Convert conversation history to dictionary format if provided
         conversation_history = None
         if request.conversation_history:
+            # Implement conversation length management to prevent 500 errors
+            history = request.conversation_history
+            
+            # Limit to last 6 exchanges (12 messages) to prevent token overflow
+            if len(history) > 12:
+                history = history[-12:]
+                print(f"⚠️ Conversation history trimmed to last 12 messages ({len(history)} from {len(request.conversation_history)})")
+            
+            # Check total character count and trim if necessary
+            total_chars = sum(len(msg.content) for msg in history)
+            if total_chars > 8000:
+                # Remove oldest messages until under limit
+                while history and sum(len(msg.content) for msg in history) > 8000:
+                    history.pop(0)
+                print(f"⚠️ Conversation history trimmed by character count to {len(history)} messages")
+            
             conversation_history = [
                 {"role": msg.role, "content": msg.content}
-                for msg in request.conversation_history
+                for msg in history
             ]
-            print(f"📚 Including {len(conversation_history)} messages from conversation history")
+            print(f"📚 Including {len(conversation_history)} messages from conversation history (total chars: {sum(len(msg['content']) for msg in conversation_history)})")
         
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
