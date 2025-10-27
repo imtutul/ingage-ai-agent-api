@@ -677,28 +677,32 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
             # Use server-side authentication
             response = fabric_client.ask(request.query, conversation_history=conversation_history)
         
+        print(f"✅ Query successful for {user_email}")
         return QueryResponse(
             success=True,
             response=response,
             query=request.query
         )
     
+    except HTTPException:
+        # Re-raise HTTP exceptions (auth errors, etc.)
+        raise
+    
     except Exception as e:
         error_type = type(e).__name__
         error_msg = str(e)
         
-        print(f"❌ Query failed:")
-        print(f"   Type: {error_type}")
-        print(f"   Message: {error_msg}")
-        
         # Safely get user info for logging
         user_email = "unknown"
-        if session and "user" in session:
-            user_email = session["user"].get("email", "unknown")
-        elif not session:
-            user_email = "no session"
+        try:
+            if session and "user" in session:
+                user_email = session["user"].get("email", "unknown")
+        except:
+            pass
         
-        print(f"   User: {user_email}")
+        print(f"❌ Query failed for {user_email}:")
+        print(f"   Type: {error_type}")
+        print(f"   Message: {error_msg}")
         print(f"   Query: {request.query}")
         
         # Log full traceback for debugging
@@ -706,22 +710,44 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
         print(f"🔍 Full error traceback:")
         traceback.print_exc()
         
-        # Return user-friendly error based on the error type
-        if "fabric_data_agent_client" in error_msg.lower():
-            # Error came from our client - return the message as-is (it's already user-friendly)
-            error_response = error_msg
-        elif "HTTPException" in error_type:
-            error_response = "There was an issue processing your request. Please try again."
-        elif "timeout" in error_msg.lower():
-            error_response = "Your request timed out. Please try a simpler question or try again later."
+        # Parse Fabric-specific errors (prefixed with FABRIC_)
+        user_message = ""
+        error_category = "UNKNOWN"
+        
+        if error_msg.startswith("FABRIC_"):
+            # Extract category and message
+            parts = error_msg.split(":", 1)
+            if len(parts) == 2:
+                error_category = parts[0]
+                user_message = parts[1].strip()
+            else:
+                user_message = error_msg
         else:
-            error_response = "I'm sorry, I encountered an unexpected error. Please try again later."
+            # Handle other error types
+            if "HTTPException" in error_type:
+                error_category = "HTTP_ERROR"
+                user_message = "There was an issue processing your request. Please try again."
+            elif "timeout" in error_msg.lower() or "TimeoutError" in error_type:
+                error_category = "TIMEOUT"
+                user_message = "Your request timed out. The query may be too complex. Please try a simpler question or try again later."
+            elif "connection" in error_msg.lower() or "ConnectionError" in error_type:
+                error_category = "CONNECTION_ERROR"
+                user_message = "Unable to connect to the service. Please check your connection and try again."
+            elif "ValidationError" in error_type:
+                error_category = "VALIDATION_ERROR"
+                user_message = f"Invalid request: {error_msg}"
+            else:
+                error_category = "UNKNOWN_ERROR"
+                user_message = "An unexpected error occurred. Please try again later."
+        
+        print(f"   Category: {error_category}")
+        print(f"   User Message: {user_message}")
         
         return QueryResponse(
             success=False,
-            response=error_response,
+            response=user_message,
             query=request.query,
-            error=f"{error_type}: {error_msg}"
+            error=f"{error_category}: {error_msg}"
         )
 
 @app.post("/query/detailed", response_model=DetailedQueryResponse)
@@ -785,6 +811,7 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
             run_details = fabric_client.get_run_details(request.query, conversation_history=conversation_history)
         
         if "error" in run_details:
+            print(f"❌ Detailed query returned error: {run_details['error']}")
             return DetailedQueryResponse(
                 success=False,
                 response="",
@@ -825,6 +852,7 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
                     else:
                         data_preview = preview[:10]  # Limit to first 10 lines
         
+        print(f"✅ Detailed query successful for {user_email}")
         return DetailedQueryResponse(
             success=True,
             response=response_text,
@@ -836,13 +864,70 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
             data_preview=data_preview
         )
     
+    except HTTPException:
+        # Re-raise HTTP exceptions (auth errors, etc.)
+        raise
+    
     except Exception as e:
-        print(f"❌ Detailed query failed: {e}")
+        error_type = type(e).__name__
+        error_msg = str(e)
+        
+        # Safely get user info for logging
+        user_email = "unknown"
+        try:
+            if session and "user" in session:
+                user_email = session["user"].get("email", "unknown")
+        except:
+            pass
+        
+        print(f"❌ Detailed query failed for {user_email}:")
+        print(f"   Type: {error_type}")
+        print(f"   Message: {error_msg}")
+        print(f"   Query: {request.query}")
+        
+        # Log full traceback for debugging
+        import traceback
+        print(f"🔍 Full error traceback:")
+        traceback.print_exc()
+        
+        # Parse Fabric-specific errors (prefixed with FABRIC_)
+        user_message = ""
+        error_category = "UNKNOWN"
+        
+        if error_msg.startswith("FABRIC_"):
+            # Extract category and message
+            parts = error_msg.split(":", 1)
+            if len(parts) == 2:
+                error_category = parts[0]
+                user_message = parts[1].strip()
+            else:
+                user_message = error_msg
+        else:
+            # Handle other error types
+            if "HTTPException" in error_type:
+                error_category = "HTTP_ERROR"
+                user_message = "There was an issue processing your request. Please try again."
+            elif "timeout" in error_msg.lower() or "TimeoutError" in error_type:
+                error_category = "TIMEOUT"
+                user_message = "Your request timed out. The query may be too complex. Please try a simpler question or try again later."
+            elif "connection" in error_msg.lower() or "ConnectionError" in error_type:
+                error_category = "CONNECTION_ERROR"
+                user_message = "Unable to connect to the service. Please check your connection and try again."
+            elif "ValidationError" in error_type:
+                error_category = "VALIDATION_ERROR"
+                user_message = f"Invalid request: {error_msg}"
+            else:
+                error_category = "UNKNOWN_ERROR"
+                user_message = "An unexpected error occurred. Please try again later."
+        
+        print(f"   Category: {error_category}")
+        print(f"   User Message: {user_message}")
+        
         return DetailedQueryResponse(
             success=False,
-            response="",
+            response=user_message,
             query=request.query,
-            error=str(e)
+            error=f"{error_category}: {error_msg}"
         )
 
 @app.get("/")

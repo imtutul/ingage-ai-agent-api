@@ -470,25 +470,46 @@ class FabricDataAgentClient:
             print(f"   Type: {error_type}")
             print(f"   Message: {error_msg}")
             
+            # Log full traceback for debugging
+            import traceback
+            print(f"🔍 Full error traceback:")
+            traceback.print_exc()
+            
             # Handle specific error types with user-friendly messages
-            if "401" in error_msg or "Unauthorized" in error_msg:
-                return "Authentication failed. Please sign in again or check your permissions."
-            elif "403" in error_msg or "Forbidden" in error_msg:
-                return "Access denied. You don't have permission to access this resource. Contact your administrator."
-            elif "429" in error_msg or "rate limit" in error_msg.lower():
-                return "Too many requests. Please wait a moment and try again."
+            # Check for OpenAI API errors first
+            if hasattr(e, 'status_code'):
+                status_code = e.status_code
+                if status_code == 401:
+                    raise Exception("FABRIC_AUTH_ERROR: Authentication failed. Your session may have expired. Please sign in again.")
+                elif status_code == 403:
+                    raise Exception("FABRIC_PERMISSION_ERROR: You don't have permission to access this Fabric Data Agent. Contact your administrator.")
+                elif status_code == 404:
+                    raise Exception("FABRIC_NOT_FOUND: The Fabric Data Agent endpoint was not found. Please check the configuration.")
+                elif status_code == 429:
+                    raise Exception("FABRIC_RATE_LIMIT: Too many requests. Please wait a moment and try again.")
+                elif status_code >= 500:
+                    raise Exception(f"FABRIC_SERVER_ERROR: The Fabric service is experiencing issues (Error {status_code}). Please try again later.")
+            
+            # Check for common error patterns in message
+            if "401" in error_msg or "Unauthorized" in error_msg or "unauthorized" in error_msg:
+                raise Exception("FABRIC_AUTH_ERROR: Authentication failed. Your session may have expired. Please sign in again.")
+            elif "403" in error_msg or "Forbidden" in error_msg or "forbidden" in error_msg:
+                raise Exception("FABRIC_PERMISSION_ERROR: Access denied. You don't have permission to access this Fabric Data Agent.")
+            elif "404" in error_msg or "Not Found" in error_msg or "not found" in error_msg:
+                raise Exception("FABRIC_NOT_FOUND: The Fabric Data Agent endpoint was not found. Please verify the configuration.")
+            elif "429" in error_msg or "rate limit" in error_msg.lower() or "too many requests" in error_msg.lower():
+                raise Exception("FABRIC_RATE_LIMIT: Too many requests. Please wait a moment and try again.")
             elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                return "Request timed out. The query is taking too long. Try a simpler question."
-            elif "connection" in error_msg.lower() or "network" in error_msg.lower():
-                return "Network connection error. Please check your internet connection and try again."
+                raise Exception("FABRIC_TIMEOUT: The query is taking too long to process. Try a simpler question or try again later.")
+            elif "connection" in error_msg.lower() or "network" in error_msg.lower() or "ConnectionError" in error_type:
+                raise Exception("FABRIC_CONNECTION_ERROR: Unable to connect to the Fabric service. Please check your connection and try again.")
             elif "token" in error_msg.lower() and ("expired" in error_msg.lower() or "invalid" in error_msg.lower()):
-                return "Authentication token expired. Please sign in again."
+                raise Exception("FABRIC_TOKEN_EXPIRED: Your authentication token has expired. Please sign in again.")
+            elif "500" in error_msg or "502" in error_msg or "503" in error_msg or "504" in error_msg:
+                raise Exception("FABRIC_SERVER_ERROR: The Fabric service is experiencing issues. Please try again later.")
             else:
-                # Log the full error for debugging but return a user-friendly message
-                import traceback
-                print(f"🔍 Full error traceback:")
-                traceback.print_exc()
-                return f"I'm sorry, I encountered a technical issue. Please try again later. If the problem persists, contact support."
+                # Re-raise with prefix for better error categorization
+                raise Exception(f"FABRIC_ERROR: {error_msg}")
     
     def get_run_details(self, question: str, conversation_history: list = None) -> dict:
         """
