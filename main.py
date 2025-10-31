@@ -11,6 +11,7 @@ load_dotenv()  # Load environment variables from .env file if present
 import os
 import asyncio
 import uuid
+import re
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
@@ -599,6 +600,257 @@ async def get_user_details(session_id: Optional[str] = Cookie(None, alias=SESSIO
         )
 
 # ============================================================================
+# Conversation History Filtering Functions
+# ============================================================================
+
+def filter_relevant_conversation_history(raw_history: list, current_query: str) -> list:
+    """
+    Intelligently filter conversation history to keep only relevant context for the current query.
+    
+    Args:
+        raw_history: List of conversation messages [{"role": "user/assistant", "content": "..."}]
+        current_query: The current user query
+        
+    Returns:
+        Filtered list of relevant conversation messages
+    """
+    if not raw_history:
+        return []
+    
+    print(f"🔍 Filtering conversation history for query: '{current_query[:100]}...'")
+    
+    # Strategy 1: Topic-based filtering using keyword similarity
+    relevant_messages = filter_by_topic_similarity(raw_history, current_query)
+    
+    # Strategy 2: Conversation flow analysis (keep context that builds up to current query)
+    relevant_messages = analyze_conversation_flow(relevant_messages, current_query)
+    
+    # Strategy 3: Remove off-topic conversations that happened in between
+    relevant_messages = remove_topic_switches(relevant_messages, current_query)
+    
+    # Strategy 4: Keep recent context if no clear topic match
+    if not relevant_messages:
+        print("🔍 No topic-specific matches found, keeping recent context")
+        relevant_messages = keep_recent_context(raw_history)
+    
+    # Ensure we have pairs (user-assistant) for coherent context
+    relevant_messages = ensure_message_pairs(relevant_messages)
+    
+    return relevant_messages
+
+def filter_by_topic_similarity(history: list, query: str) -> list:
+    """Filter messages based on topic similarity using keyword matching."""
+    import re
+    
+    # Extract key terms from current query
+    query_lower = query.lower()
+    
+    # Business/data keywords that indicate topic
+    business_keywords = extract_business_keywords(query_lower)
+    
+    relevant_messages = []
+    for msg in history:
+        content_lower = msg["content"].lower()
+        
+        # Check for keyword overlap
+        if any(keyword in content_lower for keyword in business_keywords):
+            relevant_messages.append(msg)
+            print(f"🎯 Relevant (topic match): {msg['content'][:80]}...")
+        # Also check for data-related patterns
+        elif has_data_context_similarity(content_lower, query_lower):
+            relevant_messages.append(msg)
+            print(f"🎯 Relevant (data context): {msg['content'][:80]}...")
+    
+    return relevant_messages
+
+def extract_business_keywords(text: str) -> list:
+    """Extract business and data-related keywords from text."""
+    import re
+    
+    keywords = set()
+    
+    # Common business entities
+    business_patterns = [
+        r'\b(sales|revenue|profit|cost|price|amount|total|sum)\b',
+        r'\b(customer|client|member|patient|user|person)\b', 
+        r'\b(order|transaction|purchase|payment|invoice)\b',
+        r'\b(product|service|item|category|department)\b',
+        r'\b(year|month|quarter|week|day|date|time)\b',
+        r'\b(region|location|state|city|country|area)\b',
+        r'\b(visit|appointment|consultation|session)\b',
+        r'\b(report|analysis|data|metrics|statistics)\b'
+    ]
+    
+    for pattern in business_patterns:
+        matches = re.findall(pattern, text)
+        keywords.update(matches)
+    
+    # Extract quoted entities (like "PCP visit")
+    quoted_entities = re.findall(r'"([^"]+)"', text)
+    keywords.update([entity.lower() for entity in quoted_entities])
+    
+    # Extract capitalized terms (likely business entities)
+    capitalized = re.findall(r'\b[A-Z][a-z]+\b', text)
+    keywords.update([term.lower() for term in capitalized])
+    
+    return list(keywords)
+
+def has_data_context_similarity(content: str, query: str) -> bool:
+    """Check if content has similar data context to query."""
+    
+    # Data analysis patterns
+    data_patterns = [
+        r'\b(count|sum|total|average|max|min|highest|lowest)\b',
+        r'\b(show|list|find|get|retrieve|display)\b',
+        r'\b(where|when|which|who|how many|how much)\b',
+        r'\b(table|database|sql|query|filter)\b',
+        r'\b(\d+\s*(days?|months?|years?|weeks?))\b'
+    ]
+    
+    query_data_score = sum(1 for pattern in data_patterns if re.search(pattern, query))
+    content_data_score = sum(1 for pattern in data_patterns if re.search(pattern, content))
+    
+    # If both have data context, they're likely related
+    return query_data_score > 0 and content_data_score > 0
+
+def analyze_conversation_flow(messages: list, current_query: str) -> list:
+    """Analyze conversation flow to keep messages that build context for current query."""
+    if len(messages) <= 2:
+        return messages
+    
+    # Look for conversation threads that build up to similar topics
+    threaded_messages = []
+    current_thread = []
+    
+    for i, msg in enumerate(messages):
+        current_thread.append(msg)
+        
+        # If this message seems to conclude a topic, evaluate the thread
+        if (msg["role"] == "assistant" and 
+            len(current_thread) >= 2 and
+            is_thread_relevant_to_query(current_thread, current_query)):
+            threaded_messages.extend(current_thread)
+            print(f"🧵 Relevant thread: {len(current_thread)} messages")
+        
+        # Start new thread on topic changes
+        if is_topic_change(current_thread, current_query):
+            current_thread = []
+    
+    return threaded_messages if threaded_messages else messages
+
+def is_thread_relevant_to_query(thread: list, query: str) -> bool:
+    """Check if a conversation thread is relevant to the current query."""
+    thread_text = " ".join([msg["content"] for msg in thread]).lower()
+    query_keywords = extract_business_keywords(query.lower())
+    
+    # Thread is relevant if it contains key terms from current query
+    relevance_score = sum(1 for keyword in query_keywords if keyword in thread_text)
+    return relevance_score >= 2  # At least 2 keyword matches
+
+def is_topic_change(recent_messages: list, query: str) -> bool:
+    """Detect if there's been a significant topic change."""
+    if len(recent_messages) < 3:
+        return False
+    
+    # Simple heuristic: if last user message is very different from current query
+    last_user_msg = None
+    for msg in reversed(recent_messages):
+        if msg["role"] == "user":
+            last_user_msg = msg["content"]
+            break
+    
+    if not last_user_msg:
+        return False
+    
+    # Check keyword overlap
+    last_keywords = set(extract_business_keywords(last_user_msg.lower()))
+    current_keywords = set(extract_business_keywords(query.lower()))
+    
+    overlap = len(last_keywords & current_keywords)
+    total_unique = len(last_keywords | current_keywords)
+    
+    # Topic change if very little overlap
+    similarity = overlap / max(total_unique, 1)
+    return similarity < 0.3
+
+def remove_topic_switches(messages: list, current_query: str) -> list:
+    """Remove conversation segments that switched to unrelated topics."""
+    if len(messages) <= 4:
+        return messages
+    
+    # Group messages into segments and evaluate relevance
+    segments = []
+    current_segment = []
+    
+    for msg in messages:
+        current_segment.append(msg)
+        
+        # End segment on assistant responses
+        if msg["role"] == "assistant":
+            segments.append(current_segment)
+            current_segment = []
+    
+    if current_segment:  # Add remaining messages
+        segments.append(current_segment)
+    
+    # Keep segments that are relevant to current query
+    relevant_segments = []
+    for segment in segments:
+        if is_segment_relevant(segment, current_query):
+            relevant_segments.extend(segment)
+            print(f"🔗 Keeping relevant segment: {len(segment)} messages")
+    
+    return relevant_segments
+
+def is_segment_relevant(segment: list, query: str) -> bool:
+    """Check if a conversation segment is relevant to current query."""
+    segment_text = " ".join([msg["content"] for msg in segment]).lower()
+    query_keywords = extract_business_keywords(query.lower())
+    
+    # Segment is relevant if it has keyword overlap or data context similarity
+    keyword_matches = sum(1 for keyword in query_keywords if keyword in segment_text)
+    has_data_context = has_data_context_similarity(segment_text, query.lower())
+    
+    return keyword_matches >= 1 or has_data_context
+
+def keep_recent_context(history: list, max_messages: int = 6) -> list:
+    """Keep recent conversation context when no specific topic match is found."""
+    print(f"📝 Keeping recent context: last {min(max_messages, len(history))} messages")
+    return history[-max_messages:] if len(history) > max_messages else history
+
+def ensure_message_pairs(messages: list) -> list:
+    """Ensure we have coherent user-assistant pairs for context."""
+    if not messages:
+        return messages
+    
+    paired_messages = []
+    i = 0
+    
+    while i < len(messages):
+        msg = messages[i]
+        
+        if msg["role"] == "user":
+            # Add user message
+            paired_messages.append(msg)
+            
+            # Look for corresponding assistant response
+            if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                paired_messages.append(messages[i + 1])
+                i += 2
+            else:
+                i += 1
+        elif msg["role"] == "assistant" and not paired_messages:
+            # Assistant message without user context, skip
+            i += 1
+        else:
+            # Assistant message with context, keep it
+            paired_messages.append(msg)
+            i += 1
+    
+    print(f"🔄 Ensured message pairing: {len(messages)} → {len(paired_messages)} messages")
+    return paired_messages
+
+# ============================================================================
 # Query Endpoints
 # ============================================================================
 
@@ -634,16 +886,14 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
                 for msg in request.conversation_history
             ]
             
-            # Limit conversation history to prevent 500 errors from oversized payloads
-            max_history_pairs = 6  # Last 6 exchanges (12 messages total)
-            if len(raw_history) > max_history_pairs * 2:
-                # Keep the most recent exchanges
-                conversation_history = raw_history[-(max_history_pairs * 2):]
-                print(f"📚 Conversation history trimmed from {len(raw_history)} to {len(conversation_history)} messages")
-            else:
-                conversation_history = raw_history
-                
-            # Also check total content length to prevent token limit issues
+            print(f"📚 Processing {len(raw_history)} messages from conversation history")
+            
+            # Apply intelligent filtering to keep only relevant context
+            conversation_history = filter_relevant_conversation_history(raw_history, request.query)
+            
+            print(f"📚 After filtering: {len(conversation_history)} relevant messages selected")
+            
+            # Final length and content checks
             total_content_length = sum(len(msg["content"]) for msg in conversation_history)
             max_content_length = 8000  # Conservative limit
             
@@ -661,7 +911,7 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
                         break
                 print(f"📚 Conversation history further trimmed due to content length ({total_content_length:,} chars)")
             
-            print(f"📚 Including {len(conversation_history)} messages from conversation history ({total_content_length:,} chars)")
+            print(f"📚 Final context: {len(conversation_history)} messages ({total_content_length:,} chars)")
         
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
@@ -747,7 +997,7 @@ async def simple_query(request: QueryRequest, session_id: Optional[str] = Cookie
             success=False,
             response=user_message,
             query=request.query,
-            error=f"{error_category}: {error_msg}"
+            error=f"{error_category}: {user_message}"
         )
 
 @app.post("/query/detailed", response_model=DetailedQueryResponse)
@@ -774,27 +1024,37 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
         # Convert conversation history to dictionary format if provided
         conversation_history = None
         if request.conversation_history:
-            # Implement conversation length management to prevent 500 errors
-            history = request.conversation_history
-            
-            # Limit to last 6 exchanges (12 messages) to prevent token overflow
-            if len(history) > 12:
-                history = history[-12:]
-                print(f"⚠️ Conversation history trimmed to last 12 messages ({len(history)} from {len(request.conversation_history)})")
-            
-            # Check total character count and trim if necessary
-            total_chars = sum(len(msg.content) for msg in history)
-            if total_chars > 8000:
-                # Remove oldest messages until under limit
-                while history and sum(len(msg.content) for msg in history) > 8000:
-                    history.pop(0)
-                print(f"⚠️ Conversation history trimmed by character count to {len(history)} messages")
-            
-            conversation_history = [
+            raw_history = [
                 {"role": msg.role, "content": msg.content}
-                for msg in history
+                for msg in request.conversation_history
             ]
-            print(f"📚 Including {len(conversation_history)} messages from conversation history (total chars: {sum(len(msg['content']) for msg in conversation_history)})")
+            
+            print(f"📚 Processing {len(raw_history)} messages from conversation history")
+            
+            # Apply intelligent filtering to keep only relevant context
+            conversation_history = filter_relevant_conversation_history(raw_history, request.query)
+            
+            print(f"📚 After filtering: {len(conversation_history)} relevant messages selected")
+            
+            # Final length and content checks
+            total_content_length = sum(len(msg["content"]) for msg in conversation_history)
+            max_content_length = 8000  # Conservative limit
+            
+            if total_content_length > max_content_length:
+                # Further trim by removing older messages
+                while conversation_history and total_content_length > max_content_length:
+                    # Remove the oldest pair (user + assistant)
+                    if len(conversation_history) >= 2:
+                        removed_user = conversation_history.pop(0)
+                        removed_assistant = conversation_history.pop(0) if conversation_history else None
+                        total_content_length -= len(removed_user["content"])
+                        if removed_assistant:
+                            total_content_length -= len(removed_assistant["content"])
+                    else:
+                        break
+                print(f"📚 Conversation history further trimmed due to content length ({total_content_length:,} chars)")
+            
+            print(f"📚 Final context: {len(conversation_history)} messages ({total_content_length:,} chars)")
         
         # If session has an access token (client-side auth), use it
         if session.get("access_token"):
@@ -927,7 +1187,7 @@ async def detailed_query(request: QueryRequest, session_id: Optional[str] = Cook
             success=False,
             response=user_message,
             query=request.query,
-            error=f"{error_category}: {error_msg}"
+            error=f"{error_category}: {user_message}"
         )
 
 @app.get("/")
