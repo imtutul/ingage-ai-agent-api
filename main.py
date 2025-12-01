@@ -219,6 +219,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:4200",
+        "https://localhost:44323",
+        "https://www.im8online.com",
+        "https://demo-portal-stage.im8online.com",
+        "https://demo-idata-stage.im8online.com",
+        "https://idata.im8online.com",
         "https://ingage-agent-ui-aqcxg2hhdxa2gcfr.canadacentral-01.azurewebsites.net"
     ],  # Configure this appropriately for production
     allow_credentials=True,
@@ -362,8 +367,9 @@ async def login(response: Response, background_tasks: BackgroundTasks):
             key=SESSION_COOKIE_NAME,
             value=session_id,
             httponly=True,
+            secure=True,
             max_age=SESSION_EXPIRY_HOURS * 3600,
-            samesite="lax"
+            samesite="none"
         )
         
         # Schedule cleanup of expired sessions
@@ -485,8 +491,9 @@ async def client_login(auth_request: ClientAuthRequest, response: Response, back
             key=SESSION_COOKIE_NAME,
             value=session_id,
             httponly=True,
+            secure=True,
             max_age=SESSION_EXPIRY_HOURS * 3600,
-            samesite="lax"
+            samesite="none"
         )
         
         # Schedule cleanup of expired sessions
